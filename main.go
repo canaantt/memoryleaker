@@ -35,8 +35,9 @@ func main() {
 	// a channel to use a hold when the memory limit it reached
 	hold := make(chan bool)
 
+	memChan := make(chan uint64, 1)
 	// a spinner that displays how much memory has leaked and when it holding
-	go func(hold chan bool, lFlag int) {
+	go func(hold chan bool, memChan chan uint64, lFlag int) {
 		s := spinner.New(spinner.CharSets[35], 250*time.Millisecond)
 		for {
 			mem := memUsage()
@@ -47,6 +48,7 @@ func main() {
 			s.Restart()
 			// if we've reached the limit, update display and hold
 			if mem >= uint64(lFlag) {
+				memChan <- mem
 				s.Color("green")
 				s.Prefix = fmt.Sprintf("Holding at %d MiB ", mem)
 				s.UpdateCharSet(spinner.CharSets[28])
@@ -55,8 +57,9 @@ func main() {
 				<-hold
 			}
 		}
-	}(hold, *lFlag)
+	}(hold, memChan, *lFlag)
 
+	fmt.Println("beginning Number of Goroutines: ", runtime.NumGoroutine())
 	// Although the "leak" var should contiue to grow, the GC is somehow getting in the way, disabling
 	debug.SetGCPercent(-1)
 	var leak string
@@ -83,14 +86,18 @@ func main() {
 
 	// start leaking indefinitely unless a limit has been provided and met
 	for {
-		leak += KB
-		time.Sleep(time.Duration(*dFlag) * time.Millisecond)
-		mem := memUsage()
-		// if we've reached the limit, hold
-		if mem >= uint64(*lFlag) {
+		select {
+		case mem := <-memChan:
+			fmt.Println("main thread stops at ", mem)
+			fmt.Println("beginning Number of Goroutines: ", runtime.NumGoroutine())
 			<-hold
+		default:
+			leak += KB
+			time.Sleep(time.Duration(*dFlag) * time.Millisecond)
 		}
 	}
+
+
 }
 
 func memUsage() uint64 {
