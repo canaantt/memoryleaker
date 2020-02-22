@@ -40,15 +40,14 @@ func main() {
 	go func(hold chan bool, memChan chan uint64, lFlag int) {
 		s := spinner.New(spinner.CharSets[35], 250*time.Millisecond)
 		for {
-			mem := memUsage()
-			s.Prefix = fmt.Sprintf("Leaked: %d MiB ", mem)
-			s.Start()
-			s.Color("magenta")
-			time.Sleep(1 * time.Second)
-			s.Restart()
-			// if we've reached the limit, update display and hold
-			if mem >= uint64(lFlag) {
-				memChan <- mem
+			mem := <- memChan
+			if mem < uint64(lFlag) {
+				s.Prefix = fmt.Sprintf("Leaked: %d MiB ", mem)
+				s.Start()
+				s.Color("magenta")
+				time.Sleep(1 * time.Second)
+				s.Restart()
+			} else {
 				s.Color("green")
 				s.Prefix = fmt.Sprintf("Holding at %d MiB ", mem)
 				s.UpdateCharSet(spinner.CharSets[28])
@@ -86,14 +85,15 @@ func main() {
 
 	// start leaking indefinitely unless a limit has been provided and met
 	for {
-		select {
-		case mem := <-memChan:
+		leak += KB
+		time.Sleep(time.Duration(*dFlag) * time.Millisecond)
+		mem := memUsage()
+		memChan <- mem
+		if mem >= uint64(*lFlag) {
+			memChan <- mem
 			fmt.Println("main thread stops at ", mem)
 			fmt.Println("beginning Number of Goroutines: ", runtime.NumGoroutine())
 			<-hold
-		default:
-			leak += KB
-			time.Sleep(time.Duration(*dFlag) * time.Millisecond)
 		}
 	}
 
